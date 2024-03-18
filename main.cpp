@@ -3,12 +3,19 @@
 #include <random>
 
 #include <vector>
+#include <tuple>
 
 #include <iostream>
 #include <fstream>
 
 #include <omp.h>
 #include <chrono>
+
+#define RERUN_NUM 10
+
+#define GLOBAL_N 2000
+#define GLOBAL_NB 100
+#define GLOBAL_EPS 0.1
 
 double example_f(double x, double y) {
     return 0;
@@ -85,7 +92,8 @@ std::vector<std::vector<double>> initialize_data(int N, double (*g)(double, doub
 }
 
 
-void basic_calculation(int N, double eps, double (*f)(double, double), double (*g)(double, double)) {
+std::pair<int, long long> basic_calculation(int N, double eps,
+                                            double (*f)(double, double), double (*g)(double, double)) {
     std::vector<std::vector<double>> data = initialize_data(N, g);
 
     int loop_cnt = 0;
@@ -111,17 +119,21 @@ void basic_calculation(int N, double eps, double (*f)(double, double), double (*
 
     auto end = std::chrono::steady_clock::now();
 
+    /*
     std::cout << "Loop count: " << loop_cnt << std::endl;
     std::cout << "Time:       "
               << (double) std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() / 1'000'000
               << " s" << std::endl;
 
     to_picture(N, data, "basic_picture.ppm");
+    */
+
+    return {loop_cnt, std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()};
 }
 
 
-void parallel_calculation(int N, int NB, int thread_num, double eps,
-                          double (*f)(double, double), double (*g)(double, double)) {
+std::pair<int, long long> parallel_calculation(int N, int NB, int thread_num, double eps,
+                                            double (*f)(double, double), double (*g)(double, double)) {
     int block_num = (N + NB - 1) / NB;
     std::vector<std::vector<double>> data = initialize_data(N, g);
 
@@ -206,21 +218,52 @@ void parallel_calculation(int N, int NB, int thread_num, double eps,
 
     auto end = std::chrono::steady_clock::now();
 
+    /*
     std::cout << "Loop count: " << loop_cnt << std::endl;
     std::cout << "Time:       "
               << (double) std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() / 1'000'000
               << " s" << std::endl;
 
     to_picture(N, data, "parallel_picture.ppm");
+    */
+
+    return {loop_cnt, std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count()};
 }
 
 
 int main() {
-    int N = 1000, NB = 100, thread_num = 4;
-    double eps = 0.1;
+    std::vector<int> thread_nums{0, 1, 2, 4, 8, 16};
 
-    basic_calculation(N, eps, example_f, example_g);
-    parallel_calculation(N, NB, thread_num, eps, example_f, example_g);
+    for (int thread_num : thread_nums) {
+        double global_loop_num = 0;
+        long double global_time_cnt = 0;
+
+        if (thread_num == 0)
+            std::cout << "Basic algorithm running..." << std::endl;
+        else
+            std::cout << "Parallel algorithm with " << thread_num << " thread(s) running..." << std::endl;
+
+        for (int rerun = 0; rerun < RERUN_NUM; ++rerun){
+            int loop_num;
+            long long time_cnt;
+
+            if (thread_num == 0)
+                std::tie(loop_num, time_cnt) =
+                        basic_calculation(GLOBAL_N, GLOBAL_EPS, example_f, example_g);
+            else
+                std::tie(loop_num, time_cnt) =
+                        parallel_calculation(GLOBAL_N, GLOBAL_NB, thread_num,
+                                             GLOBAL_EPS, example_f, example_g);
+
+            global_loop_num += loop_num;
+            global_time_cnt += (long double) time_cnt;
+        }
+
+        std::cout << RERUN_NUM << " runs finished!" << std::endl;
+        std::cout << "Average loop count: " << global_loop_num / RERUN_NUM << std::endl;
+        std::cout << "Average time:       " << global_time_cnt / RERUN_NUM / 1'000'000 << " s" << std::endl;
+        std::cout << std::endl;
+    }
 
     return 0;
 }
